@@ -1,0 +1,14 @@
+[package]
+name = "os2-software-impl"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aes-gcm = "0.10"
+rand = "0.8"
+sha2 = "0.10"
+hex = "0.4"
+
+# For a real Paillier implementation, you would need a BigNum library
+# e.g., num-bigint = "0.4"
+# and a Paillier crate if one becomes available or is implemented.
