@@ -8,6 +8,24 @@ aes-gcm = "0.10"
 rand = "0.8"
 sha2 = "0.10"
 hex = "0.4"
+num-bigint = { version = "0.4", features = ["rand"] }
+num-traits = "0.2"
+num-integer = "0.1"
+modinverse = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4.41", features = ["serde"] }
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "crypto_benchmarks"
+harness = false
+
+[[bench]]
+name = "os2_benchmarks"
+harness = false
 
 # For a real Paillier implementation, you would need a BigNum library
 # e.g., num-bigint = "0.4"

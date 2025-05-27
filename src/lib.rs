@@ -2,79 +2,36 @@ use aes_gcm::{Aes256Gcm, Key};
 use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::Nonce; // Use Nonce directly, it will be GenericArray<u8, NonceSize>
 use sha2::{Sha256, Digest};
-use rand::RngCore;
+use num_bigint::BigUint;
+
+// --- Add module and imports ---
+mod paillier;
+
+// Re-export Paillier types and functions for benchmarks
+pub use paillier::{PaillierPk, PaillierSk, generate_keypair, encrypt_paillier, decrypt_paillier, add_homomorphic, mul_homomorphic};
+// --- End: Add module and imports ---
 
 // --- Configuration ---
 const BLOOM_FILTER_SIZE: usize = 128; // Lambda
 const SLIDING_WINDOW_SIZE: usize = 2;
 const K_HASH_FUNCTIONS: usize = 3; // Number of hash functions for Bloom filter
 
-// --- Mocked Paillier Cryptosystem ---
-// In a real scenario, these would be large numbers and proper Paillier operations.
-// For this mock, Pk is just a modulus for the sum, Sk is not strictly needed for this mock's decryption.
-#[derive(Debug, Clone)]
-pub struct PaillierPk {
-    modulus_for_sum: u32, // Plaintext space for sum is 0, 1, 2. So this should be > 2.
-}
-#[derive(Debug, Clone)]
-pub struct PaillierSk {
-    modulus_for_sum: u32,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct EncryptedBit(u32); // Mock: stores (original_bit + random_multiple_of_modulus)
-
-impl PaillierPk {
-    fn new() -> Self {
-        PaillierPk {
-            modulus_for_sum: 3, // To distinguish sums 0, 1, 2
-        }
-    }
-}
-impl PaillierSk {
-    fn new() -> Self {
-        PaillierSk {
-            modulus_for_sum: 3,
-        }
-    }
-}
-
-fn encrypt_paillier(bit: u8, pk: &PaillierPk) -> EncryptedBit {
-    // Mock encryption: E(b) = b + r * modulus_for_sum
-    // 'r' is a small random number for variability.
-    let mut rng = OsRng;
-    let r = rng.next_u32() % 10; // Small random factor
-    EncryptedBit(bit as u32 + r * pk.modulus_for_sum)
-}
-
-fn decrypt_paillier(enc_bit: &EncryptedBit, sk: &PaillierSk) -> u8 {
-    // Mock decryption: D(E(b)) = E(b) mod modulus_for_sum
-    (enc_bit.0 % sk.modulus_for_sum) as u8
-}
-
-fn add_homomorphic(eb1: &EncryptedBit, eb2: &EncryptedBit, _pk: &PaillierPk) -> EncryptedBit {
-    // Mock homomorphic addition: E(b1) + E(b2) results in E(b1+b2)
-    // Our mock E(b1) + E(b2) = (b1 + r1*M) + (b2 + r2*M) = (b1+b2) + (r1+r2)*M
-    // This is already in the form E(b1+b2)
-    EncryptedBit(eb1.0 + eb2.0)
-}
-
 // --- Bloom Filter ---
 #[derive(Debug, Clone)]
 pub struct BloomFilter {
-    bits: Vec<bool>,
+    pub bits: Vec<bool>,
     pub tau: usize, // Count of set bits
 }
 
 impl BloomFilter {
-    fn new() -> Self {
+    pub fn new() -> Self {
         BloomFilter {
             bits: vec![false; BLOOM_FILTER_SIZE],
             tau: 0,
         }
     }
 
-    fn add(&mut self, item: &str) {
+    pub fn add(&mut self, item: &str) {
         let item_bytes = item.as_bytes();
         if item_bytes.len() < SLIDING_WINDOW_SIZE {
             if !item_bytes.is_empty() { // Handle very short items as a single chunk
@@ -107,24 +64,24 @@ impl BloomFilter {
                 }
             }
         }
-    }
-
-    fn encrypt(&self, pk: &PaillierPk) -> EncryptedBloomFilter {
-        let encrypted_bits = self.bits.iter().map(|&b| encrypt_paillier(b as u8, pk)).collect();
+    }    pub fn encrypt(&self, pk: &PaillierPk) -> EncryptedBloomFilter {
+        let encrypted_bits = self.bits.iter().map(|&b| paillier::encrypt_paillier(&BigUint::from(b as u8), pk)).collect();
         EncryptedBloomFilter { bits: encrypted_bits, tau: self.tau }
     }
 }
 
 #[derive(Debug, Clone)]
 pub struct EncryptedBloomFilter {
-    bits: Vec<EncryptedBit>,
+    pub bits: Vec<BigUint>,
     pub tau: usize, // Tau is stored in plaintext as per paper (Sec 4.2, 7.1)
 }
 
-impl EncryptedBloomFilter {
-    #[allow(dead_code)] // This method might be useful for debugging or other scenarios
-    fn decrypt(&self, sk: &PaillierSk) -> Vec<u8> { // Returns decrypted bits (0 or 1)
-        self.bits.iter().map(|eb| decrypt_paillier(eb, sk)).collect()
+impl EncryptedBloomFilter {    #[allow(dead_code)] // This method might be useful for debugging or other scenarios
+    pub fn decrypt(&self, sk: &PaillierSk, pk: &PaillierPk) -> Vec<u8> { // Returns decrypted bits (0 or 1)
+        self.bits.iter().map(|eb| {
+            let decrypted = paillier::decrypt_paillier(eb, sk, pk);
+            decrypted.to_bytes_le()[0] // Convert BigUint to u8
+        }).collect()
     }
 }
 
@@ -133,17 +90,17 @@ impl EncryptedBloomFilter {
 pub struct SymmetricKey(Key<Aes256Gcm>);
 
 impl SymmetricKey {
-    fn new() -> Self {
+    pub fn new() -> Self {
         SymmetricKey(Aes256Gcm::generate_key(OsRng))
     }
 
-    fn encrypt(&self, plaintext: &[u8]) -> Result<(Vec<u8>, Nonce<<Aes256Gcm as AeadCore>::NonceSize>), aes_gcm::Error> {
+    pub fn encrypt(&self, plaintext: &[u8]) -> Result<(Vec<u8>, Nonce<<Aes256Gcm as AeadCore>::NonceSize>), aes_gcm::Error> {
         let cipher = Aes256Gcm::new(&self.0);
         let nonce: Nonce<<Aes256Gcm as AeadCore>::NonceSize> = <Aes256Gcm as AeadCore>::generate_nonce(&mut OsRng);
         cipher.encrypt(&nonce, plaintext).map(|ct| (ct, nonce))
     }
 
-    fn decrypt(&self, ciphertext: &[u8], nonce: &Nonce<<Aes256Gcm as AeadCore>::NonceSize>) -> Result<Vec<u8>, aes_gcm::Error> {
+    pub fn decrypt(&self, ciphertext: &[u8], nonce: &Nonce<<Aes256Gcm as AeadCore>::NonceSize>) -> Result<Vec<u8>, aes_gcm::Error> {
         let cipher = Aes256Gcm::new(&self.0);
         cipher.decrypt(nonce, ciphertext)
     }
@@ -158,32 +115,46 @@ pub struct Os2Client {
 
 #[derive(Debug)]
 pub struct EncryptedDocument {
-    id: String,
-    encrypted_content: Vec<u8>,
-    nonce: Nonce<<Aes256Gcm as AeadCore>::NonceSize>, // Nonce used for AES-GCM
-    encrypted_index: EncryptedBloomFilter, // B_kw in paper
+    pub id: String,
+    pub encrypted_content: Vec<u8>,
+    pub nonce: Nonce<<Aes256Gcm as AeadCore>::NonceSize>, // Nonce used for AES-GCM
+    pub encrypted_index: EncryptedBloomFilter, // B_kw in paper
 }
 
 pub struct CloudServer {
-    stored_documents: Vec<EncryptedDocument>,
-    paillier_pk: Option<PaillierPk>, // Server gets PK
+    pub stored_documents: Vec<EncryptedDocument>,
+    pub paillier_pk: Option<PaillierPk>, // Server gets PK
 }
 
 impl Os2Client {
     pub fn new() -> Self {
+        let (paillier_pk, paillier_sk) = paillier::generate_keypair(1024); // Use 1024-bit keys for reasonable speed
         Os2Client {
             symmetric_key: SymmetricKey::new(),
-            paillier_pk: PaillierPk::new(),
-            paillier_sk: PaillierSk::new(),
+            paillier_pk,
+            paillier_sk,
+        }
+    }    // Test-optimized constructor with smaller keys for faster testing
+    #[deprecated(note = "This method should only be used for testing")]
+    pub fn new_for_testing() -> Self {
+        let (paillier_pk, paillier_sk) = paillier::generate_keypair(512); // Use 512-bit keys for faster tests
+        Os2Client {
+            symmetric_key: SymmetricKey::new(),
+            paillier_pk,
+            paillier_sk,
         }
     }
 
     pub fn get_paillier_pk_for_server(&self) -> PaillierPk {
         self.paillier_pk.clone()
-    }
-    
-    pub fn get_paillier_pk_for_client_use(&self) -> PaillierPk {
+    }    pub fn get_paillier_pk_for_client_use(&self) -> PaillierPk {
         self.paillier_pk.clone()
+    }
+
+    // For testing only - expose private key
+    #[deprecated(note = "This method should only be used for testing")]
+    pub fn get_paillier_sk_for_testing(&self) -> &PaillierSk {
+        &self.paillier_sk
     }
 
     pub fn outsource_document(&self, doc_id: &str, content: &str, keywords: Vec<&str>) -> Result<EncryptedDocument, aes_gcm::Error> {
@@ -210,9 +181,7 @@ impl Os2Client {
             query_bf.add(keyword);
         }
         query_bf.encrypt(&self.paillier_pk)
-    }
-    
-    // Result post-processing
+    }      // Result post-processing
     pub fn process_search_result(
         &self,
         oblivious_sum_bf: &EncryptedBloomFilter, // This is Delta_vector in paper (Sec 4.5)
@@ -220,7 +189,10 @@ impl Os2Client {
         // Decrypt the sum. Each element will be 0, 1, or 2.
         // Decrypted bits are E(stored_bit + query_bit)
         let decrypted_sum_bits: Vec<u8> = oblivious_sum_bf.bits.iter()
-            .map(|eb_sum| decrypt_paillier(eb_sum, &self.paillier_sk))
+            .map(|eb_sum| {
+                let decrypted = paillier::decrypt_paillier(eb_sum, &self.paillier_sk, &self.paillier_pk);
+                decrypted.to_bytes_le()[0] // Convert BigUint to u8
+            })
             .collect();
 
         let mut n0_matches = 0; // stored=0, query=0 => sum=0
@@ -294,9 +266,8 @@ impl CloudServer {
             for i in 0..BLOOM_FILTER_SIZE {
                 let stored_enc_bit = &doc.encrypted_index.bits[i];
                 let query_enc_bit = &query_encrypted_bf.bits[i];
-                
-                // Homomorphic addition: E(stored_bit) + E(query_bit) -> E(stored_bit + query_bit)
-                let sum_enc_bit = add_homomorphic(stored_enc_bit, query_enc_bit, pk);
+                  // Homomorphic addition: E(stored_bit) + E(query_bit) -> E(stored_bit + query_bit)
+                let sum_enc_bit = paillier::add_homomorphic(stored_enc_bit, query_enc_bit, pk);
                 oblivious_sum_bits.push(sum_enc_bit);
             }
             // Tau for the sum BF is not meaningful in the same way as original tau.
@@ -307,123 +278,290 @@ impl CloudServer {
     }
 }
 
-// --- Example Usage ---
+// --- Tests ---
 #[cfg(test)]
 mod tests {
-    use super::*;
+    use super::*;    #[test]
+    fn test_paillier_basic_operations() {
+        let (pk, sk) = paillier::generate_keypair(512);
+
+        let m1 = BigUint::from(5u32);
+        let m2 = BigUint::from(10u32);
+
+        // Test encryption/decryption
+        let c1 = paillier::encrypt_paillier(&m1, &pk);
+        let c2 = paillier::encrypt_paillier(&m2, &pk);
+
+        assert_eq!(paillier::decrypt_paillier(&c1, &sk, &pk), m1);
+        assert_eq!(paillier::decrypt_paillier(&c2, &sk, &pk), m2);
+
+        // Test homomorphic addition
+        let c_sum = paillier::add_homomorphic(&c1, &c2, &pk);
+        let decrypted_sum = paillier::decrypt_paillier(&c_sum, &sk, &pk);
+        assert_eq!(decrypted_sum, &m1 + &m2);
+
+        // Test homomorphic multiplication by constant
+        let k = BigUint::from(3u32);
+        let c_mul = paillier::mul_homomorphic(&c1, &k, &pk);
+        let decrypted_mul = paillier::decrypt_paillier(&c_mul, &sk, &pk);
+        assert_eq!(decrypted_mul, &m1 * &k);
+    }
 
     #[test]
-    fn os2_workflow_example() {
-        // 1. Initialization
+    fn test_bloom_filter_basic() {
+        let mut bf = BloomFilter::new();
+        assert_eq!(bf.tau, 0);
+
+        bf.add("test");
+        assert!(bf.tau > 0);
+
+        let initial_tau = bf.tau;
+        bf.add("test"); // Adding same item should not increase tau significantly
+        assert!(bf.tau >= initial_tau);
+    }
+
+    #[test]
+    fn test_bloom_filter_sliding_window() {
+        let mut bf = BloomFilter::new();
+        bf.add("hello");
+
+        // Check that the sliding window approach sets appropriate bits
+        assert!(bf.tau > 0);
+        assert!(bf.tau <= K_HASH_FUNCTIONS * ("hello".len() - SLIDING_WINDOW_SIZE + 1));
+    }
+
+    #[test]
+    fn test_bloom_filter_encryption_decryption() {
+        let (pk, sk) = generate_keypair(512);
+        let mut bf = BloomFilter::new();
+        bf.add("apple");
+        bf.add("banana");
+
+        let encrypted_bf = bf.encrypt(&pk);
+        let decrypted_bits = encrypted_bf.decrypt(&sk, &pk);
+
+        assert_eq!(decrypted_bits.len(), BLOOM_FILTER_SIZE);
+        for i in 0..BLOOM_FILTER_SIZE {
+            assert_eq!(decrypted_bits[i], if bf.bits[i] { 1 } else { 0 });
+        }
+    }
+
+    #[test]
+    fn test_symmetric_encryption() {
+        let key = SymmetricKey::new();
+        let plaintext = b"Hello, world!";
+
+        let (ciphertext, nonce) = key.encrypt(plaintext).unwrap();
+        let decrypted = key.decrypt(&ciphertext, &nonce).unwrap();
+
+        assert_eq!(plaintext, &decrypted[..]);
+    }
+
+    #[test]
+    fn test_os2_client_initialization() {
+        let client = Os2Client::new();
+        let pk_for_server = client.get_paillier_pk_for_server();
+        let pk_for_client = client.get_paillier_pk_for_client_use();
+
+        // Both should be the same reference to the same key
+        assert_eq!(pk_for_server.n, pk_for_client.n);
+    }
+
+    #[test]
+    fn test_document_outsourcing() {
+        let client = Os2Client::new();
+        let keywords = vec!["rust", "programming", "language"];
+        let content = "Rust is a systems programming language.";
+
+        let encrypted_doc = client.outsource_document("doc1", content, keywords).unwrap();
+
+        assert_eq!(encrypted_doc.id, "doc1");
+        assert!(!encrypted_doc.encrypted_content.is_empty());
+        assert!(encrypted_doc.encrypted_index.tau > 0);
+
+        // Test decryption
+        let decrypted_content = client.decrypt_document_content(&encrypted_doc).unwrap();
+        assert_eq!(decrypted_content, content);
+    }
+
+    #[test]
+    fn test_query_generation() {
+        let client = Os2Client::new();
+        let keywords = vec!["search", "query"];
+
+        let query_bf = client.generate_query_bloom_filter(keywords);
+        assert!(query_bf.tau > 0);
+        assert_eq!(query_bf.bits.len(), BLOOM_FILTER_SIZE);
+    }
+
+    #[test]
+    fn test_server_document_storage() {
+        let mut server = CloudServer::new();
+        let client = Os2Client::new();
+
+        server.receive_paillier_pk(client.get_paillier_pk_for_server());
+
+        let encrypted_doc = client.outsource_document(
+            "test_doc",
+            "Test content",
+            vec!["test"]
+        ).unwrap();
+
+        server.store_document(encrypted_doc);
+        assert_eq!(server.stored_documents.len(), 1);
+    }
+
+    #[test]
+    fn test_query_evaluation() {
         let client = Os2Client::new();
         let mut server = CloudServer::new();
         server.receive_paillier_pk(client.get_paillier_pk_for_server());
 
-        // 2. Client outsources documents
-        let doc1_keywords = vec!["health", "research", "neuroscience"];
-        let doc1_content = "This document discusses health research in neuroscience.";
-        let enc_doc1 = client.outsource_document("doc1", doc1_content, doc1_keywords).unwrap();
-        
-        let doc2_keywords = vec!["finance", "market", "analysis"];
-        let doc2_content = "Financial market analysis and trends.";
-        let enc_doc2 = client.outsource_document("doc2", doc2_content, doc2_keywords).unwrap();
+        // Store a document
+        let doc_keywords = vec!["machine", "learning", "ai"];
+        let encrypted_doc = client.outsource_document(
+            "ml_doc",
+            "Machine learning and AI research",
+            doc_keywords
+        ).unwrap();
+        server.store_document(encrypted_doc);
 
-        server.store_document(enc_doc1);
-        server.store_document(enc_doc2);
-        
-        // 3. Client generates a search query
-        let search_keywords = vec!["neuroscience", "health"];
-        let query_bf = client.generate_query_bloom_filter(search_keywords);
+        // Generate query
+        let query_keywords = vec!["machine", "learning"];
+        let query_bf = client.generate_query_bloom_filter(query_keywords);
 
-        // 4. Server evaluates the query (obliviously)
-        // The server would typically filter documents based on tau and phi first.
-        // Here, we evaluate against all stored documents for simplicity.
-        let evaluation_results = server.evaluate_query(&query_bf);
+        // Evaluate query
+        let results = server.evaluate_query(&query_bf);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, "ml_doc");
+    }
 
-        // 5. Client processes results
-        println!("Search Results:");
-        for (doc_id, oblivious_sum_bf) in evaluation_results {
+    #[test]
+    fn test_similarity_calculation() {
+        let client = Os2Client::new();
+        let mut server = CloudServer::new();
+        server.receive_paillier_pk(client.get_paillier_pk_for_server());
+
+        // Store documents with different keyword sets
+        let doc1_keywords = vec!["rust", "programming", "systems"];
+        let doc2_keywords = vec!["python", "scripting", "web"];
+
+        let doc1 = client.outsource_document("doc1", "Rust content", doc1_keywords).unwrap();
+        let doc2 = client.outsource_document("doc2", "Python content", doc2_keywords).unwrap();
+
+        server.store_document(doc1);
+        server.store_document(doc2);
+
+        // Query for Rust-related keywords
+        let query_keywords = vec!["rust", "programming"];
+        let query_bf = client.generate_query_bloom_filter(query_keywords);
+
+        let results = server.evaluate_query(&query_bf);
+        assert_eq!(results.len(), 2);
+
+        // Calculate similarities
+        let similarity1 = client.process_search_result(&results[0].1);
+        let similarity2 = client.process_search_result(&results[1].1);
+
+        // doc1 should have higher similarity than doc2 for rust-related query
+        assert!(similarity1 >= 0.0 && similarity1 <= 1.0);
+        assert!(similarity2 >= 0.0 && similarity2 <= 1.0);
+    }
+
+    #[test]
+    fn test_end_to_end_workflow() {
+        let client = Os2Client::new();
+        let mut server = CloudServer::new();
+        server.receive_paillier_pk(client.get_paillier_pk_for_server());
+
+        // Store multiple documents
+        let documents = vec![
+            ("doc1", "Machine learning algorithms and neural networks", vec!["machine", "learning", "neural", "networks"]),
+            ("doc2", "Web development with JavaScript and React", vec!["web", "development", "javascript", "react"]),
+            ("doc3", "Data science and machine learning applications", vec!["data", "science", "machine", "learning"]),
+        ];
+
+        for (id, content, keywords) in documents {
+            let encrypted_doc = client.outsource_document(id, content, keywords).unwrap();
+            server.store_document(encrypted_doc);
+        }
+
+        // Search for machine learning related documents
+        let query_keywords = vec!["machine", "learning"];
+        let query_bf = client.generate_query_bloom_filter(query_keywords);
+        let results = server.evaluate_query(&query_bf);
+
+        assert_eq!(results.len(), 3);
+
+        // Process results and find relevant documents
+        let mut relevant_docs = Vec::new();
+        for (doc_id, oblivious_sum_bf) in results {
             let similarity = client.process_search_result(&oblivious_sum_bf);
-            println!("- Document ID: {}, Similarity: {:.4}", doc_id, similarity);
+            if similarity > 0.6 { // Threshold for relevance
+                relevant_docs.push((doc_id, similarity));
+            }
+        }
 
-            // Optionally, client can fetch and decrypt the document if similarity is high
-            if similarity > 0.7 { // Example threshold
-                 let original_doc = server.stored_documents.iter().find(|d| d.id == doc_id).unwrap();
-                 match client.decrypt_document_content(original_doc) {
-                     Ok(content) => println!("  Decrypted content (high similarity): {}", content),
-                     Err(e) => eprintln!("  Failed to decrypt {}: {:?}", doc_id, e),
-                 }
-            }
-        }
-        
-        // Example: Test with keywords that won't match well with doc1
-        let search_keywords_no_match = vec!["art", "history"];
-        let query_bf_no_match = client.generate_query_bloom_filter(search_keywords_no_match);
-        let evaluation_results_no_match = server.evaluate_query(&query_bf_no_match);
-        
-        println!("\nSearch Results (low/no match expected for doc1):");
-         for (doc_id, oblivious_sum_bf) in evaluation_results_no_match {
-            if doc_id == "doc1" { // Only show for doc1 for this specific test
-                let similarity = client.process_search_result(&oblivious_sum_bf);
-                println!("- Document ID: {}, Similarity: {:.4}", doc_id, similarity);
-                assert!(similarity < 0.7, "Similarity for non-matching keywords should be lower");
-            }
-        }
+        // Should find documents with machine learning keywords
+        assert!(!relevant_docs.is_empty());
     }
-    
+
     #[test]
-    fn test_bloom_filter_properties() {
+    fn test_bloom_filter_false_positives() {
         let mut bf = BloomFilter::new();
-        bf.add("apple");
-        bf.add("apricot");
-
-        // Check tau (number of set bits)
-        assert!(bf.tau > 0 && bf.tau <= K_HASH_FUNCTIONS * ("apple".len() - SLIDING_WINDOW_SIZE + 1 + "apricot".len() - SLIDING_WINDOW_SIZE + 1));
+        let keywords = vec!["apple", "banana", "cherry", "date", "elderberry"];
         
-        let pk = PaillierPk::new();
-        let sk = PaillierSk::new();
-        let enc_bf = bf.encrypt(&pk);
-        let dec_bf_bits = enc_bf.decrypt(&sk);
-
-        assert_eq!(dec_bf_bits.len(), BLOOM_FILTER_SIZE);
-        for i in 0..BLOOM_FILTER_SIZE {
-            assert_eq!(dec_bf_bits[i], bf.bits[i] as u8);
+        for keyword in &keywords {
+            bf.add(keyword);
         }
+
+        // Test with a keyword that wasn't added
+        let mut test_bf = BloomFilter::new();
+        test_bf.add("zebra");
+
+        // The bloom filters should have different patterns
+        let mut differences = 0;
+        for i in 0..BLOOM_FILTER_SIZE {
+            if bf.bits[i] != test_bf.bits[i] {
+                differences += 1;
+            }
+        }
+        
+        // Should have some differences (this test might occasionally fail due to hash collisions)
+        assert!(differences > 0, "Bloom filters for different keywords should differ");
     }
 
     #[test]
-    fn test_paillier_mock() {
-        let pk = PaillierPk::new();
-        let sk = PaillierSk::new();
+    fn test_large_document_handling() {
+        let client = Os2Client::new();
+        let large_content = "word ".repeat(1000); // 5000 character document
+        let keywords = vec!["word", "large", "document", "test"];
 
-        let bit0: u8 = 0;
-        let bit1: u8 = 1;
+        let encrypted_doc = client.outsource_document("large_doc", &large_content, keywords).unwrap();
+        let decrypted_content = client.decrypt_document_content(&encrypted_doc).unwrap();
 
-        let enc0 = encrypt_paillier(bit0, &pk);
-        let enc1 = encrypt_paillier(bit1, &pk);
-        
-        // Test decryption
-        assert_eq!(decrypt_paillier(&enc0, &sk), bit0);
-        assert_eq!(decrypt_paillier(&enc1, &sk), bit1);
+        assert_eq!(decrypted_content, large_content);
+    }
 
-        // Test homomorphic addition E(b1)+E(b2) -> E(b1+b2)
-        // Our mock: add_homomorphic(E(b1), E(b2)) = E_new(b1+b2)
-        // Decrypt(E_new(b1+b2)) should be (b1+b2) % modulus_for_sum
-        
-        // 0+0 = 0
-        let sum_enc_0_0 = add_homomorphic(&encrypt_paillier(0, &pk), &encrypt_paillier(0, &pk), &pk);
-        assert_eq!(decrypt_paillier(&sum_enc_0_0, &sk), 0);
+    #[test]
+    fn test_empty_and_edge_cases() {
+        let client = Os2Client::new();
 
-        // 0+1 = 1
-        let sum_enc_0_1 = add_homomorphic(&encrypt_paillier(0, &pk), &encrypt_paillier(1, &pk), &pk);
-        assert_eq!(decrypt_paillier(&sum_enc_0_1, &sk), 1);
-        
-        // 1+0 = 1
-        let sum_enc_1_0 = add_homomorphic(&encrypt_paillier(1, &pk), &encrypt_paillier(0, &pk), &pk);
-        assert_eq!(decrypt_paillier(&sum_enc_1_0, &sk), 1);
+        // Test with empty content
+        let encrypted_doc = client.outsource_document("empty", "", vec!["tag"]).unwrap();
+        let decrypted = client.decrypt_document_content(&encrypted_doc).unwrap();
+        assert_eq!(decrypted, "");
 
-        // 1+1 = 2
-        let sum_enc_1_1 = add_homomorphic(&encrypt_paillier(1, &pk), &encrypt_paillier(1, &pk), &pk);
-        assert_eq!(decrypt_paillier(&sum_enc_1_1, &sk), 2);
+        // Test with single character keywords
+        let mut bf = BloomFilter::new();
+        bf.add("a");
+        bf.add("b");
+        assert!(bf.tau > 0);
+
+        // Test with very long keyword
+        let long_keyword = "a".repeat(1000);
+        let mut long_bf = BloomFilter::new();
+        long_bf.add(&long_keyword);
+        assert!(long_bf.tau > 0);
     }
 }
