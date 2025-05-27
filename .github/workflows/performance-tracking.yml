@@ -1,0 +1,315 @@
+name: Performance Tracking
+
+on:
+  schedule:
+    # Run weekly benchmarks on Sunday at 2 AM UTC
+    - cron: '0 2 * * 0'
+  workflow_dispatch:
+    # Allow manual triggering
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'benches/**'
+      - 'Cargo.toml'
+      - 'Cargo.lock'
+
+jobs:
+  benchmark-tracking:
+    name: Performance Baseline Tracking
+    runs-on: ubuntu-latest
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Install Rust toolchain
+      uses: dtolnay/rust-toolchain@stable
+
+    - name: Cache cargo dependencies
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.cargo/bin/
+          ~/.cargo/registry/index/
+          ~/.cargo/registry/cache/
+          ~/.cargo/git/db/
+          target/
+        key: ${{ runner.os }}-perf-${{ hashFiles('**/Cargo.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-perf-
+
+    - name: Install system dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y gnuplot jq
+
+    - name: Collect system information
+      id: sysinfo
+      run: |
+        # Collect detailed system information from /proc/cpuinfo
+        CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^ *//')
+        CPU_CORES=$(nproc)
+        CPU_FREQ=$(grep "cpu MHz" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^ *//' | cut -d. -f1)
+        MEMORY_GB=$(free -h | grep "^Mem:" | awk '{print $2}')
+        MEMORY_TOTAL_KB=$(grep MemTotal /proc/meminfo | awk '{print $2}')
+        KERNEL_VERSION=$(uname -r)
+        ARCH=$(uname -m)
+        OS_VERSION=$(lsb_release -d | cut -d: -f2 | sed 's/^ *//')
+        RUST_VERSION=$(rustc --version)
+        
+        # Output to GitHub Actions
+        echo "cpu_model=$CPU_MODEL" >> $GITHUB_OUTPUT
+        echo "cpu_cores=$CPU_CORES" >> $GITHUB_OUTPUT
+        echo "cpu_freq=$CPU_FREQ" >> $GITHUB_OUTPUT
+        echo "memory_gb=$MEMORY_GB" >> $GITHUB_OUTPUT
+        echo "memory_total_kb=$MEMORY_TOTAL_KB" >> $GITHUB_OUTPUT
+        echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
+        echo "arch=$ARCH" >> $GITHUB_OUTPUT
+        echo "os_version=$OS_VERSION" >> $GITHUB_OUTPUT
+        echo "rust_version=$RUST_VERSION" >> $GITHUB_OUTPUT
+        
+        # Display system information
+        echo "### System Information ###"
+        echo "CPU: $CPU_MODEL ($CPU_CORES cores @ ${CPU_FREQ}MHz)"
+        echo "Memory: $MEMORY_GB total"
+        echo "OS: $OS_VERSION"
+        echo "Kernel: $KERNEL_VERSION"
+        echo "Architecture: $ARCH"
+        echo "Rust: $RUST_VERSION"
+
+    - name: Run comprehensive benchmarks
+      run: |
+        echo "=== Running Crypto Benchmarks ==="
+        cargo bench --bench crypto_benchmarks -- --output-format json | tee crypto-bench.json
+        
+        echo "=== Running OS2 Protocol Benchmarks ==="
+        cargo bench --bench os2_benchmarks -- --output-format json | tee os2-bench.json
+        
+        echo "=== Benchmark Execution Complete ==="
+
+    - name: Process benchmark results
+      run: |
+        # Create results directory with timestamp
+        TIMESTAMP=$(date -u +"%Y%m%d_%H%M%S")
+        RESULTS_DIR="benchmark-results-${TIMESTAMP}"
+        mkdir -p "$RESULTS_DIR"
+        
+        # Parse JSON results and create summary
+        echo "Processing benchmark results..."
+        
+        # Create a comprehensive metrics summary with actual system info
+        cat > "$RESULTS_DIR/system-info.json" << EOF
+        {
+          "timestamp": "$(date -u --iso-8601=seconds)",
+          "commit_sha": "${{ github.sha }}",
+          "runner": {
+            "os": "ubuntu-latest",
+            "arch": "${{ steps.sysinfo.outputs.arch }}"
+          },
+          "hardware": {
+            "cpu_model": "${{ steps.sysinfo.outputs.cpu_model }}",
+            "cpu_cores": ${{ steps.sysinfo.outputs.cpu_cores }},
+            "cpu_freq_mhz": ${{ steps.sysinfo.outputs.cpu_freq }},
+            "memory_gb": "${{ steps.sysinfo.outputs.memory_gb }}",
+            "memory_total_kb": ${{ steps.sysinfo.outputs.memory_total_kb }}
+          },
+          "software": {
+            "kernel_version": "${{ steps.sysinfo.outputs.kernel_version }}",
+            "os_version": "${{ steps.sysinfo.outputs.os_version }}",
+            "rust_version": "${{ steps.sysinfo.outputs.rust_version }}"
+          }
+        }
+        EOF
+        
+        # Copy raw benchmark data
+        cp crypto-bench.json "$RESULTS_DIR/" 2>/dev/null || echo "No crypto benchmark data"
+        cp os2-bench.json "$RESULTS_DIR/" 2>/dev/null || echo "No OS2 benchmark data"
+        
+        # Create human-readable summary with real system information
+        cat > "$RESULTS_DIR/benchmark-summary.md" << EOF
+        # Performance Benchmark Results
+        
+        **Date:** $(date -u)
+        **Commit:** ${{ github.sha }}
+        **Platform:** GitHub Actions Ubuntu Runner
+        
+        ## System Configuration
+        
+        - **CPU:** ${{ steps.sysinfo.outputs.cpu_model }} (${{ steps.sysinfo.outputs.cpu_cores }} cores @ ${{ steps.sysinfo.outputs.cpu_freq }}MHz)
+        - **Memory:** ${{ steps.sysinfo.outputs.memory_gb }} available
+        - **OS:** ${{ steps.sysinfo.outputs.os_version }}
+        - **Kernel:** ${{ steps.sysinfo.outputs.kernel_version }}
+        - **Architecture:** ${{ steps.sysinfo.outputs.arch }}
+        - **Rust:** ${{ steps.sysinfo.outputs.rust_version }}
+        
+        ## Benchmark Results
+        
+        ### Cryptographic Operations
+        
+        Raw data available in: \`crypto-bench.json\`
+        
+        ### OS2 Protocol Operations
+        
+        Raw data available in: \`os2-bench.json\`
+          ## Hardware Comparison Notes
+        
+        EOF
+        
+        # Store the results directory name for subsequent steps
+        echo "RESULTS_DIR=$RESULTS_DIR" >> $GITHUB_ENV
+        echo "Results stored in: $RESULTS_DIR"
+
+    - name: Upload benchmark artifacts
+      uses: actions/upload-artifact@v3
+      with:
+        name: benchmark-results-${{ github.run_number }}
+        path: benchmark-results-*/
+        retention-days: 90
+
+    - name: Comment on commit with results
+      if: github.event_name == 'push'
+      uses: actions/github-script@v6
+      with:
+        script: |
+          const summary = `
+          ## 🚀 Performance Benchmark Completed
+          
+          **Commit:** ${{ github.sha }}
+          **Timestamp:** ${new Date().toUTCString()}
+          **System:** ${{ steps.sysinfo.outputs.cpu_model }} (${{ steps.sysinfo.outputs.cpu_cores }} cores)
+          
+          ✅ Cryptographic benchmarks completed
+          ✅ OS2 protocol benchmarks completed  
+          ✅ Baseline data generated for hardware comparison
+            📊 **Artifact:** \`benchmark-results-${{ github.run_number }}\`
+          
+          This data can be used to compare against FPGA implementations for hardware acceleration research.
+          `;
+          
+          // Create a comment on the commit
+          await github.rest.repos.createCommitComment({
+            owner: context.repo.owner,
+            repo: context.repo.repo,
+            commit_sha: context.sha,
+            body: summary
+          });
+
+  hardware-comparison-template:
+    name: Generate Hardware Comparison Template
+    runs-on: ubuntu-latest
+    needs: benchmark-tracking
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+    
+    - name: Collect system information
+      id: sysinfo
+      run: |
+        CPU_MODEL=$(grep "model name" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^ *//')
+        CPU_CORES=$(nproc)
+        CPU_FREQ=$(grep "cpu MHz" /proc/cpuinfo | head -1 | cut -d: -f2 | sed 's/^ *//' | cut -d. -f1)
+        MEMORY_GB=$(free -h | grep "^Mem:" | awk '{print $2}')
+        KERNEL_VERSION=$(uname -r)
+        RUST_VERSION=$(rustc --version)
+          echo "cpu_model=$CPU_MODEL" >> $GITHUB_OUTPUT
+        echo "cpu_cores=$CPU_CORES" >> $GITHUB_OUTPUT
+        echo "cpu_freq=$CPU_FREQ" >> $GITHUB_OUTPUT
+        echo "memory_gb=$MEMORY_GB" >> $GITHUB_OUTPUT
+        echo "kernel_version=$KERNEL_VERSION" >> $GITHUB_OUTPUT
+        echo "rust_version=$RUST_VERSION" >> $GITHUB_OUTPUT
+    
+    - name: Download benchmark results
+      uses: actions/download-artifact@v3
+      with:
+        name: benchmark-results-${{ github.run_number }}
+        path: ./benchmark-data
+
+    - name: Parse benchmark results and generate template
+      run: |        
+        # Parse benchmark results from the artifact
+        BENCH_DIR=$(find ./benchmark-data -name "benchmark-results-*" -type d | head -1)
+        
+        # Extract key benchmark metrics
+        PAILLIER_KEYGEN="N/A"
+        PAILLIER_ENCRYPT="N/A"
+        PAILLIER_DECRYPT="N/A"
+        BLOOM_ENCRYPT="N/A"
+        OS2_QUERY="N/A"
+        
+        # Parse crypto benchmarks if available
+        if [ -f "$BENCH_DIR/crypto-bench.json" ]; then
+          # Extract Paillier keygen time (convert to milliseconds)
+          PAILLIER_KEYGEN=$(cat "$BENCH_DIR/crypto-bench.json" | jq -r '
+            .results[] | select(.benchmark_name | contains("paillier_keygen/generate_keypair")) | 
+            .typical | . / 1000000 | floor | tostring + " ms"' 2>/dev/null || echo "N/A")
+          
+          # Extract Paillier encrypt time (convert to microseconds)  
+          PAILLIER_ENCRYPT=$(cat "$BENCH_DIR/crypto-bench.json" | jq -r '
+            .results[] | select(.benchmark_name | contains("paillier_encryption/encrypt_1024bit")) | 
+            .typical | . / 1000 | floor | tostring + " μs"' 2>/dev/null || echo "N/A")
+            
+          # Extract Paillier decrypt time (convert to microseconds)
+          PAILLIER_DECRYPT=$(cat "$BENCH_DIR/crypto-bench.json" | jq -r '
+            .results[] | select(.benchmark_name | contains("paillier_decryption/decrypt")) | 
+            .typical | . / 1000 | floor | tostring + " μs"' 2>/dev/null || echo "N/A")
+          
+          # Extract Bloom filter encrypt time (convert to microseconds)
+          BLOOM_ENCRYPT=$(cat "$BENCH_DIR/crypto-bench.json" | jq -r '
+            .results[] | select(.benchmark_name | contains("bloom_filter/encrypt_bloom_filter")) | 
+            .typical | . / 1000 | floor | tostring + " μs"' 2>/dev/null || echo "N/A")
+        fi
+        
+        # Parse OS2 benchmarks if available
+        if [ -f "$BENCH_DIR/os2-bench.json" ]; then
+          # Extract OS2 query evaluation time (convert to milliseconds)
+          OS2_QUERY=$(cat "$BENCH_DIR/os2-bench.json" | jq -r '
+            .results[] | select(.benchmark_name | contains("end_to_end/server_query_evaluation")) | 
+            .typical | . / 1000000 | floor | tostring + " ms"' 2>/dev/null || echo "N/A")
+        fi
+        
+        echo "Extracted benchmark values:"
+        echo "Paillier Keygen: $PAILLIER_KEYGEN"
+        echo "Paillier Encrypt: $PAILLIER_ENCRYPT"
+        echo "Paillier Decrypt: $PAILLIER_DECRYPT"
+        echo "Bloom Encrypt: $BLOOM_ENCRYPT"
+        echo "OS2 Query: $OS2_QUERY"
+        
+        # Generate hardware comparison template with actual measured values
+        cat > hardware-comparison-template.md << EOF
+        # Hardware vs Software Performance Comparison
+        
+        ## OS2 Implementation Performance Analysis
+        
+        ### Software Baseline (This Implementation)
+        
+        **Platform:** GitHub Actions Ubuntu Runner
+        **CPU:** ${{ steps.sysinfo.outputs.cpu_model }} (${{ steps.sysinfo.outputs.cpu_cores }} cores @ ${{ steps.sysinfo.outputs.cpu_freq }}MHz)
+        **Memory:** ${{ steps.sysinfo.outputs.memory_gb }} available
+        **Kernel:** Linux ${{ steps.sysinfo.outputs.kernel_version }}
+        **Rust Version:** ${{ steps.sysinfo.outputs.rust_version }}
+        
+        ### Performance Comparison Table
+        
+        | Operation | Software Baseline | FPGA Target |
+        |-----------|-------------------|-------------|
+        | Paillier Keygen (1024-bit) | ${PAILLIER_KEYGEN} | TBD |
+        | Paillier Encrypt | ${PAILLIER_ENCRYPT} | TBD |
+        | Paillier Decrypt | ${PAILLIER_DECRYPT} | TBD |
+        | Bloom Filter Encrypt | ${BLOOM_ENCRYPT} | TBD | 
+        | OS2 Query Evaluation | ${OS2_QUERY} | TBD |
+        ---
+        
+        **Generated:** \$(date -u --iso-8601=seconds)
+        **Software Baseline Commit:** ${{ github.sha }}
+        **Benchmark Data:** Available in CI artifacts
+        EOF
+
+    - name: Upload comparison template
+      uses: actions/upload-artifact@v3
+      with:
+        name: hardware-comparison-template
+        path: hardware-comparison-template.md
+        retention-days: 365

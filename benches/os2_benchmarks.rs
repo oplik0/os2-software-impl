@@ -376,10 +376,9 @@ fn generate_hardware_comparison_report() -> std::io::Result<()> {
                 1024,
             ),
         ],
-        hardware_results: vec![
-            HardwareResult {
+        hardware_results: vec![            HardwareResult {
                 operation: "paillier_encrypt".to_string(),
-                hardware_type: "FPGA_Xilinx_Zynq".to_string(),
+                hardware_type: "FPGA_Platform_A".to_string(),
                 duration_ns: 100_000, // 0.1ms (10x speedup)
                 power_consumption_watts: 5.0,
                 cost_estimate_usd: 500.0,
