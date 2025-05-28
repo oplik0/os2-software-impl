@@ -102,7 +102,7 @@ jobs:
         find benchmark-results -name "*.html" -type f > benchmark-results/report-list.txt || true
 
     - name: Upload benchmark results
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results-${{ github.sha }}
         path: benchmark-results/
@@ -172,7 +172,7 @@ jobs:
       run: cargo build --release
 
     - name: Upload release binary
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: os2-software-impl-release-${{ github.sha }}
         path: target/release/

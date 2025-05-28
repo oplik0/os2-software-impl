@@ -161,7 +161,7 @@ jobs:
         echo "Results stored in: $RESULTS_DIR"
 
     - name: Upload benchmark artifacts
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: benchmark-results-${{ github.run_number }}
         path: benchmark-results-*/
@@ -308,7 +308,7 @@ jobs:
         EOF
 
     - name: Upload comparison template
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: hardware-comparison-template
         path: hardware-comparison-template.md
