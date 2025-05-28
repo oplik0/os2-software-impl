@@ -77,15 +77,16 @@ jobs:
         echo "Kernel: $KERNEL_VERSION"
         echo "Architecture: $ARCH"
         echo "Rust: $RUST_VERSION"
-
+    - name: Install Cargo Criterion
+      run: cargo install cargo-criterion
     - name: Run comprehensive benchmarks
       run: |
         echo "=== Running Crypto Benchmarks ==="
-        cargo bench --bench crypto_benchmarks -- --format json | tee crypto-bench.json
+        cargo criterion --bench crypto_benchmarks --message-format=json | tee crypto-bench.json
         
         echo "=== Running OS2 Protocol Benchmarks ==="
-        cargo bench --bench os2_benchmarks -- --format json | tee os2-bench.json
-        
+        cargo criterion --bench os2_benchmarks --message-format=json | tee os2-bench.json
+
         echo "=== Benchmark Execution Complete ==="
 
     - name: Process benchmark results
