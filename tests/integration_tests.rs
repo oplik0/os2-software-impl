@@ -196,8 +196,8 @@ fn test_encryption_security_properties() {
         "Encryption differences: {}/{}",
         differences,
         query_bf1.bits.len()
-    );    // Test that decryption is consistent - use the client's keys that were used for
-    // encryption
+    ); // Test that decryption is consistent - use the client's keys that were used for
+       // encryption
     let pk = client.get_paillier_pk_for_client_use();
     #[allow(deprecated)]
     let sk = client.get_paillier_sk_for_testing();
@@ -241,9 +241,7 @@ fn test_bloom_filter_properties() {
         }
     }
     let false_positive_rate = false_positives as f64 / test_keywords.len() as f64;
-    println!(
-        "Estimated false positive rate for hardware keywords: {false_positive_rate:.4}"
-    );
+    println!("Estimated false positive rate for hardware keywords: {false_positive_rate:.4}");
 
     // Should have reasonable false positive rate
     assert!(false_positive_rate < 0.5, "False positive rate too high");

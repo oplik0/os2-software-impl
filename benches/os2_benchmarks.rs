@@ -273,9 +273,7 @@ fn bloom_filter_hardware_benchmark(c: &mut Criterion) {
     let keyword_counts = [1, 5, 10, 25, 50];
 
     for keyword_count in keyword_counts.iter() {
-        let keywords: Vec<String> = (0..*keyword_count)
-            .map(|i| format!("keyword{i}"))
-            .collect();
+        let keywords: Vec<String> = (0..*keyword_count).map(|i| format!("keyword{i}")).collect();
 
         group.throughput(Throughput::Elements(*keyword_count as u64));
         group.bench_with_input(
