@@ -3,6 +3,7 @@ use os2_software_impl::*;
 #[test]
 fn test_full_os2_workflow() {
     // Complete end-to-end test of the OS2 system
+    #[allow(deprecated)]
     let client = Os2Client::new_for_testing(); // Use faster keys for testing
     let mut server = CloudServer::new();
 
@@ -75,7 +76,7 @@ fn test_full_os2_workflow() {
     ];
 
     for (query_keywords, description) in test_queries {
-        println!("Testing query: {:?} - {}", query_keywords, description);
+        println!("Testing query: {query_keywords:?} - {description}");
 
         let query_bf = client.generate_query_bloom_filter(query_keywords.clone());
         let results = server.evaluate_query(&query_bf);
@@ -85,7 +86,7 @@ fn test_full_os2_workflow() {
         for (doc_id, oblivious_sum_bf) in results {
             let similarity = client.process_search_result(&oblivious_sum_bf);
             similarities.push((doc_id.clone(), similarity));
-            println!("  {} -> similarity: {:.4}", doc_id, similarity);
+            println!("  {doc_id} -> similarity: {similarity:.4}");
         }
 
         // Verify similarities are within valid range
@@ -97,6 +98,7 @@ fn test_full_os2_workflow() {
 
 #[test]
 fn test_keyword_similarity_accuracy() {
+    #[allow(deprecated)]
     let client = Os2Client::new_for_testing(); // Use faster keys for testing
     let mut server = CloudServer::new();
     server.receive_paillier_pk(client.get_paillier_pk_for_server());
@@ -118,7 +120,7 @@ fn test_keyword_similarity_accuracy() {
     ];
 
     for (doc_id, keywords) in &docs {
-        let content = format!("Hardware design document about {}", doc_id);
+        let content = format!("Hardware design document about {doc_id}");
         let encrypted_doc = client
             .outsource_document(doc_id, &content, keywords.clone())
             .unwrap();
@@ -142,8 +144,7 @@ fn test_keyword_similarity_accuracy() {
     let design_alt_sim = similarities["design_alt"];
     let single_sim = similarities["single_match"];
 
-    println!("Hardware Design Similarities: design_full={:.4}, design_partial={:.4}, design_alt={:.4}, single={:.4}", 
-             design_full_sim, design_partial_sim, design_alt_sim, single_sim);
+    println!("Hardware Design Similarities: design_full={design_full_sim:.4}, design_partial={design_partial_sim:.4}, design_alt={design_alt_sim:.4}, single={single_sim:.4}");
 
     // Full match should have highest similarity
     assert!(
@@ -171,6 +172,7 @@ fn test_keyword_similarity_accuracy() {
 
 #[test]
 fn test_encryption_security_properties() {
+    #[allow(deprecated)]
     let client = Os2Client::new_for_testing(); // Use faster keys for testing
 
     // Test that same plaintext encrypts to different ciphertexts (semantic
@@ -194,9 +196,10 @@ fn test_encryption_security_properties() {
         "Encryption differences: {}/{}",
         differences,
         query_bf1.bits.len()
-    ); // Test that decryption is consistent - use the client's keys that were used for
-       // encryption
+    );    // Test that decryption is consistent - use the client's keys that were used for
+    // encryption
     let pk = client.get_paillier_pk_for_client_use();
+    #[allow(deprecated)]
     let sk = client.get_paillier_sk_for_testing();
     let plaintext_bits1 = query_bf1.decrypt(sk, &pk);
     let plaintext_bits2 = query_bf2.decrypt(sk, &pk);
@@ -217,7 +220,7 @@ fn test_bloom_filter_properties() {
     }
 
     // Test a large set of random keywords for false positives
-    let test_keywords: Vec<String> = (0..1000).map(|i| format!("random_hw_term_{}", i)).collect();
+    let test_keywords: Vec<String> = (0..1000).map(|i| format!("random_hw_term_{i}")).collect();
 
     let mut false_positives = 0;
     for test_keyword in &test_keywords {
@@ -239,8 +242,7 @@ fn test_bloom_filter_properties() {
     }
     let false_positive_rate = false_positives as f64 / test_keywords.len() as f64;
     println!(
-        "Estimated false positive rate for hardware keywords: {:.4}",
-        false_positive_rate
+        "Estimated false positive rate for hardware keywords: {false_positive_rate:.4}"
     );
 
     // Should have reasonable false positive rate

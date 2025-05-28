@@ -14,6 +14,7 @@ struct BenchmarkResults {
 }
 
 impl BenchmarkResults {
+    #[allow(dead_code)]
     fn new(operation: String, key_size: usize, duration_ns: u64) -> Self {
         let throughput_ops_per_sec = 1_000_000_000.0 / duration_ns as f64;
         let timestamp = chrono::Utc::now().to_rfc3339();
@@ -27,6 +28,7 @@ impl BenchmarkResults {
         }
     }
 
+    #[allow(dead_code)]
     fn save_to_file(&self, filename: &str) -> std::io::Result<()> {
         use std::fs::OpenOptions;
         use std::io::Write;
@@ -36,7 +38,7 @@ impl BenchmarkResults {
             .create(true)
             .append(true)
             .open(filename)?;
-        writeln!(file, "{}", json)?;
+        writeln!(file, "{json}")?;
         Ok(())
     }
 }
@@ -69,7 +71,7 @@ fn paillier_encryption_benchmark(c: &mut Criterion) {
     let keys_1024 = generate_keypair(1024);
     let keys_2048 = generate_keypair(2048);
 
-    let test_messages = vec![
+    let test_messages = [
         BigUint::from(0u32),
         BigUint::from(1u32),
         BigUint::from(255u32),
@@ -79,7 +81,7 @@ fn paillier_encryption_benchmark(c: &mut Criterion) {
     for (key_size, (pk, _)) in [(512, &keys_512), (1024, &keys_1024), (2048, &keys_2048)].iter() {
         for (msg_idx, message) in test_messages.iter().enumerate() {
             group.bench_with_input(
-                BenchmarkId::new(format!("encrypt_{}bit", key_size), msg_idx),
+                BenchmarkId::new(format!("encrypt_{key_size}bit"), msg_idx),
                 &(pk, message),
                 |b, (pk, message)| {
                     b.iter(|| encrypt_paillier(black_box(message), black_box(pk)));
@@ -118,7 +120,7 @@ fn paillier_decryption_benchmark(c: &mut Criterion) {
 fn paillier_homomorphic_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("paillier_homomorphic");
 
-    let (pk, sk) = generate_keypair(1024);
+    let (pk, _sk) = generate_keypair(1024);
     let m1 = BigUint::from(123u32);
     let m2 = BigUint::from(456u32);
     let c1 = encrypt_paillier(&m1, &pk);
@@ -142,7 +144,7 @@ fn bloom_filter_benchmark(c: &mut Criterion) {
 
     // Benchmark bloom filter creation and keyword addition
     group.bench_function("create_empty", |b| {
-        b.iter(|| BloomFilter::new());
+        b.iter(BloomFilter::new);
     });
 
     let keywords = vec!["apple", "banana", "cherry", "date", "elderberry"];
@@ -180,7 +182,7 @@ fn symmetric_encryption_benchmark(c: &mut Criterion) {
     let mut group = c.benchmark_group("symmetric_encryption");
 
     let key = SymmetricKey::new();
-    let plaintexts = vec![
+    let plaintexts = [
         vec![0u8; 16],     // 16 bytes
         vec![0u8; 256],    // 256 bytes
         vec![0u8; 1024],   // 1KB
@@ -229,7 +231,7 @@ fn hash_performance_benchmark(c: &mut Criterion) {
 
     use sha2::{Digest, Sha256};
 
-    let inputs = vec![
+    let inputs = [
         vec![0u8; 2],    // Sliding window size
         vec![0u8; 16],   // Small input
         vec![0u8; 256],  // Medium input
@@ -309,9 +311,9 @@ fn end_to_end_benchmark(c: &mut Criterion) {
                 for i in 0..5 {
                     let doc = client
                         .outsource_document(
-                            &format!("doc{}", i),
-                            &format!("Content for document {}", i),
-                            vec!["keyword1", "keyword2", &format!("keyword{}", i)],
+                            &format!("doc{i}"),
+                            &format!("Content for document {i}"),
+                            vec!["keyword1", "keyword2", &format!("keyword{i}")],
                         )
                         .unwrap();
                     server.store_document(doc);
@@ -371,8 +373,8 @@ fn scalability_benchmark(c: &mut Criterion) {
                         for i in 0..doc_count {
                             let doc = client
                                 .outsource_document(
-                                    &format!("doc{}", i),
-                                    &format!("Content for document {}", i),
+                                    &format!("doc{i}"),
+                                    &format!("Content for document {i}"),
                                     vec!["keyword1", "keyword2", &format!("keyword{}", i % 3)],
                                 )
                                 .unwrap();
@@ -409,7 +411,7 @@ fn memory_benchmark(c: &mut Criterion) {
                 let (pk, _) = generate_keypair(1024);
                 let mut bf = BloomFilter::new();
                 for i in 0..50 {
-                    bf.add(&format!("keyword{}", i));
+                    bf.add(&format!("keyword{i}"));
                 }
                 (bf, pk)
             },
@@ -431,9 +433,9 @@ fn memory_benchmark(c: &mut Criterion) {
                 for i in 0..10 {
                     let doc = client
                         .outsource_document(
-                            &format!("doc{}", i),
-                            &format!("Large content for document {} {}", i, "x".repeat(1000)),
-                            vec!["keyword1", "keyword2", &format!("keyword{}", i)],
+                            &format!("doc{i}"),
+                            &format!("Large content for document {i} {}", "x".repeat(1000)),
+                            vec!["keyword1", "keyword2", &format!("keyword{i}")],
                         )
                         .unwrap();
                     documents.push(doc);

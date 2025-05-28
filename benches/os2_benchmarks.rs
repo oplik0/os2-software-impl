@@ -40,6 +40,7 @@ impl OS2BenchmarkResult {
         }
     }
 
+    #[allow(dead_code)]
     fn save_to_file(&self, filename: &str) -> std::io::Result<()> {
         use std::fs::OpenOptions;
         use std::io::Write;
@@ -49,7 +50,7 @@ impl OS2BenchmarkResult {
             .create(true)
             .append(true)
             .open(filename)?;
-        writeln!(file, "{}", json)?;
+        writeln!(file, "{json}")?;
         writeln!(file, ",")?; // For JSON array format
         Ok(())
     }
@@ -260,7 +261,7 @@ fn bloom_filter_hardware_benchmark(c: &mut Criterion) {
                 b.iter(|| {
                     let mut bf = BloomFilter::new();
                     for i in 0..10 {
-                        bf.add(&format!("keyword{}", i));
+                        bf.add(&format!("keyword{i}"));
                     }
                     black_box(bf)
                 });
@@ -273,7 +274,7 @@ fn bloom_filter_hardware_benchmark(c: &mut Criterion) {
 
     for keyword_count in keyword_counts.iter() {
         let keywords: Vec<String> = (0..*keyword_count)
-            .map(|i| format!("keyword{}", i))
+            .map(|i| format!("keyword{i}"))
             .collect();
 
         group.throughput(Throughput::Elements(*keyword_count as u64));
@@ -296,7 +297,7 @@ fn bloom_filter_hardware_benchmark(c: &mut Criterion) {
     let (pk, sk) = generate_keypair(2048);
     let mut bf = BloomFilter::new();
     for i in 0..20 {
-        bf.add(&format!("keyword{}", i));
+        bf.add(&format!("keyword{i}"));
     }
 
     group.bench_function("bloom_filter_encrypt_2048", |b| {
@@ -330,8 +331,8 @@ fn server_operations_benchmark(c: &mut Criterion) {
         for i in 0..*doc_count {
             let doc = client
                 .outsource_document(
-                    &format!("doc{}", i),
-                    &format!("Content for document {}", i),
+                    &format!("doc{i}"),
+                    &format!("Content for document {i}"),
                     vec!["keyword1", "keyword2", &format!("keyword{}", i % 5)],
                 )
                 .unwrap();
@@ -417,8 +418,8 @@ fn setup_document_scenario(
     let mut documents = Vec::new();
 
     for i in 0..doc_count {
-        let doc_id = format!("doc_{}", i);
-        let content = format!("This is document {} with content for testing. It contains various keywords and information.", i);
+        let doc_id = format!("doc_{i}");
+        let content = format!("This is document {i} with content for testing. It contains various keywords and information.");
 
         let mut keywords = Vec::new();
         for j in 0..keywords_per_doc {
@@ -500,7 +501,7 @@ fn hardware_comparison_benchmark(c: &mut Criterion) {
 
     // Generate the comparison template
     generate_hardware_comparison_report().unwrap_or_else(|e| {
-        eprintln!("Failed to generate hardware comparison report: {}", e);
+        eprintln!("Failed to generate hardware comparison report: {e}");
     });
 }
 

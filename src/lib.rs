@@ -26,6 +26,12 @@ pub struct BloomFilter {
     pub tau: usize, // Count of set bits
 }
 
+impl Default for BloomFilter {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl BloomFilter {
     pub fn new() -> Self {
         BloomFilter {
@@ -105,6 +111,12 @@ impl EncryptedBloomFilter {
 // --- Symmetric Encryption (AES-GCM) ---
 pub struct SymmetricKey(Key<Aes256Gcm>);
 
+impl Default for SymmetricKey {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl SymmetricKey {
     pub fn new() -> Self {
         SymmetricKey(Aes256Gcm::generate_key(OsRng))
@@ -135,6 +147,12 @@ pub struct Os2Client {
     symmetric_key: SymmetricKey,
     paillier_pk: PaillierPk,
     paillier_sk: PaillierSk,
+}
+
+impl Default for Os2Client {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[derive(Debug)]
@@ -328,6 +346,12 @@ impl CloudServer {
     }
 }
 
+impl Default for CloudServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 // --- Tests ---
 #[cfg(test)]
 mod tests {
@@ -392,8 +416,8 @@ mod tests {
         let decrypted_bits = encrypted_bf.decrypt(&sk, &pk);
 
         assert_eq!(decrypted_bits.len(), BLOOM_FILTER_SIZE);
-        for i in 0..BLOOM_FILTER_SIZE {
-            assert_eq!(decrypted_bits[i], if bf.bits[i] { 1 } else { 0 });
+        for (i, &decrypted_bit) in decrypted_bits.iter().enumerate().take(BLOOM_FILTER_SIZE) {
+            assert_eq!(decrypted_bit, if bf.bits[i] { 1 } else { 0 });
         }
     }
 
@@ -517,8 +541,8 @@ mod tests {
         let similarity2 = client.process_search_result(&results[1].1);
 
         // doc1 should have higher similarity than doc2 for rust-related query
-        assert!(similarity1 >= 0.0 && similarity1 <= 1.0);
-        assert!(similarity2 >= 0.0 && similarity2 <= 1.0);
+        assert!((0.0..=1.0).contains(&similarity1));
+        assert!((0.0..=1.0).contains(&similarity2));
     }
 
     #[test]
