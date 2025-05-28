@@ -27,7 +27,7 @@ jobs:
       uses: dtolnay/rust-toolchain@stable
 
     - name: Cache cargo dependencies
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.cargo/bin/
@@ -222,7 +222,7 @@ jobs:
         echo "rust_version=$RUST_VERSION" >> $GITHUB_OUTPUT
     
     - name: Download benchmark results
-      uses: actions/download-artifact@v3
+      uses: actions/download-artifact@v4
       with:
         name: benchmark-results-${{ github.run_number }}
         path: ./benchmark-data
