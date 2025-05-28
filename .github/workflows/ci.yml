@@ -38,7 +38,10 @@ jobs:
         key: ${{ runner.os }}-cargo-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
         restore-keys: |
           ${{ runner.os }}-cargo-${{ matrix.rust }}-
-
+    - name: Add components
+      run: |
+        rustup component add rustfmt
+        rustup component add clippy
     - name: Check code formatting
       run: cargo fmt --all -- --check
 
