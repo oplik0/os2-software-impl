@@ -81,10 +81,10 @@ jobs:
     - name: Run comprehensive benchmarks
       run: |
         echo "=== Running Crypto Benchmarks ==="
-        cargo bench --bench crypto_benchmarks -- --output-format json | tee crypto-bench.json
+        cargo bench --bench crypto_benchmarks -- --format json | tee crypto-bench.json
         
         echo "=== Running OS2 Protocol Benchmarks ==="
-        cargo bench --bench os2_benchmarks -- --output-format json | tee os2-bench.json
+        cargo bench --bench os2_benchmarks -- --format json | tee os2-bench.json
         
         echo "=== Benchmark Execution Complete ==="
 

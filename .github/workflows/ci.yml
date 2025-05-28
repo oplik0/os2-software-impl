@@ -88,10 +88,10 @@ jobs:
         sudo apt-get install -y gnuplot
 
     - name: Run crypto benchmarks
-      run: cargo bench --bench crypto_benchmarks -- --output-format html
+      run: cargo bench --bench crypto_benchmarks
 
     - name: Run OS2 workflow benchmarks  
-      run: cargo bench --bench os2_benchmarks -- --output-format html
+      run: cargo bench --bench os2_benchmarks
 
     - name: Create benchmark results directory
       run: mkdir -p benchmark-results
