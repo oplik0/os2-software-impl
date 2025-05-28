@@ -1,7 +1,7 @@
 # OS2 Software Implementation
 
-[![CI](https://github.com/username/os2-software-impl/workflows/CI/badge.svg)](https://github.com/username/os2-software-impl/actions)
-[![Performance Tracking](https://github.com/username/os2-software-impl/workflows/Performance%20Tracking/badge.svg)](https://github.com/username/os2-software-impl/actions)
+[![CI](https://github.com/oplik0/os2-software-impl/actions/workflows/ci.yml/badge.svg)](https://github.com/oplik0/os2-software-impl/actions/workflows/ci.yml)
+[![Performance Tracking](https://github.com/oplik0/os2-software-impl/actions/workflows/performance-tracking.yml/badge.svg)](https://github.com/oplik0/os2-software-impl/actions/workflows/performance-tracking.yml)
 
 A Rust implementation of the OS2 (Oblivious Substring Search) protocol, providing a software baseline for comparison with hardware-accelerated implementations such as FPGA designs.
 
