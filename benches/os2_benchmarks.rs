@@ -156,7 +156,7 @@ fn realistic_workflow_benchmark(c: &mut Criterion) {
             },
             criterion::BatchSize::SmallInput,
         );
-    });
+    }).sample_size(10);
 
     group.finish();
 }

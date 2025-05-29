@@ -2,6 +2,7 @@ use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
 use aes_gcm::Nonce; // Use Nonce directly, it will be GenericArray<u8, NonceSize>
 use aes_gcm::{Aes256Gcm, Key};
 use num_bigint::BigUint;
+use rayon::prelude::*;
 use sha2::{Digest, Sha256};
 
 // --- Add module and imports ---
@@ -50,8 +51,39 @@ impl BloomFilter {
             return;
         }
 
-        for window in item_bytes.windows(SLIDING_WINDOW_SIZE) {
-            self.add_chunk(window);
+        // Collect all chunks to process in parallel
+        let chunks: Vec<&[u8]> = item_bytes.windows(SLIDING_WINDOW_SIZE).collect();
+        
+        // Process chunks in parallel and collect the bit indices
+        let bit_updates: Vec<Vec<usize>> = chunks
+            .par_iter()
+            .map(|&chunk| {
+                let mut hasher = Sha256::default();
+                hasher.update(chunk);
+                let result = hasher.finalize();
+                
+                let mut indices = Vec::new();
+                for i in 0..K_HASH_FUNCTIONS {
+                    if result.len() >= (i + 1) * 4 {
+                        let mut bytes = [0u8; 4];
+                        bytes.copy_from_slice(&result[i * 4..(i + 1) * 4]);
+                        let hash_val = u32::from_le_bytes(bytes);
+                        let index = hash_val as usize % BLOOM_FILTER_SIZE;
+                        indices.push(index);
+                    }
+                }
+                indices
+            })
+            .collect();
+
+        // Apply updates sequentially to maintain tau count correctly
+        for indices in bit_updates {
+            for index in indices {
+                if !self.bits[index] {
+                    self.bits[index] = true;
+                    self.tau += 1;
+                }
+            }
         }
     }
 
@@ -78,13 +110,68 @@ impl BloomFilter {
     pub fn encrypt(&self, pk: &PaillierPk) -> EncryptedBloomFilter {
         let encrypted_bits = self
             .bits
-            .iter()
+            .par_iter()
             .map(|&b| paillier::encrypt_paillier(&BigUint::from(b as u8), pk))
             .collect();
         EncryptedBloomFilter {
             bits: encrypted_bits,
             tau: self.tau,
         }
+    }
+
+    /// Create a new Bloom filter and add multiple keywords in parallel
+    pub fn from_keywords(keywords: &[&str]) -> Self {
+        let mut bf = BloomFilter::new();
+        
+        // Process keywords in parallel and collect all bit updates
+        let all_bit_updates: Vec<Vec<usize>> = keywords
+            .par_iter()
+            .flat_map(|&keyword| {
+                let item_bytes = keyword.as_bytes();
+                if item_bytes.len() < SLIDING_WINDOW_SIZE {
+                    if !item_bytes.is_empty() {
+                        vec![Self::get_chunk_indices(item_bytes)]
+                    } else {
+                        vec![]
+                    }
+                } else {
+                    item_bytes.windows(SLIDING_WINDOW_SIZE)
+                        .map(Self::get_chunk_indices)
+                        .collect()
+                }
+            })
+            .collect();
+
+        // Apply all updates sequentially to maintain tau count correctly
+        for indices in all_bit_updates {
+            for index in indices {
+                if !bf.bits[index] {
+                    bf.bits[index] = true;
+                    bf.tau += 1;
+                }
+            }
+        }
+        
+        bf
+    }
+
+    /// Helper method to get bit indices for a chunk
+    fn get_chunk_indices(chunk: &[u8]) -> Vec<usize> {
+        let mut hasher = Sha256::default();
+        hasher.update(chunk);
+        let result = hasher.finalize();
+        
+        let mut indices = Vec::new();
+        for i in 0..K_HASH_FUNCTIONS {
+            if result.len() >= (i + 1) * 4 {
+                let mut bytes = [0u8; 4];
+                bytes.copy_from_slice(&result[i * 4..(i + 1) * 4]);
+                let hash_val = u32::from_le_bytes(bytes);
+                let index = hash_val as usize % BLOOM_FILTER_SIZE;
+                indices.push(index);
+            }
+        }
+        indices
     }
 }
 
@@ -99,7 +186,7 @@ impl EncryptedBloomFilter {
     pub fn decrypt(&self, sk: &PaillierSk, pk: &PaillierPk) -> Vec<u8> {
         // Returns decrypted bits (0 or 1)
         self.bits
-            .iter()
+            .par_iter()
             .map(|eb| {
                 let decrypted = paillier::decrypt_paillier(eb, sk, pk);
                 decrypted.to_bytes_le()[0] // Convert BigUint to u8
@@ -208,11 +295,8 @@ impl Os2Client {
     ) -> Result<EncryptedDocument, aes_gcm::Error> {
         let (encrypted_content, nonce) = self.symmetric_key.encrypt(content.as_bytes())?;
 
-        let mut bf = BloomFilter::new();
-        for keyword in keywords {
-            bf.add(keyword);
-        }
-
+        // Use parallel bloom filter creation for better performance
+        let bf = BloomFilter::from_keywords(&keywords);
         let encrypted_bf = bf.encrypt(&self.paillier_pk);
 
         Ok(EncryptedDocument {
@@ -224,10 +308,8 @@ impl Os2Client {
     }
 
     pub fn generate_query_bloom_filter(&self, search_keywords: Vec<&str>) -> EncryptedBloomFilter {
-        let mut query_bf = BloomFilter::new();
-        for keyword in search_keywords {
-            query_bf.add(keyword);
-        }
+        // Use parallel bloom filter creation for better performance
+        let query_bf = BloomFilter::from_keywords(&search_keywords);
         query_bf.encrypt(&self.paillier_pk)
     } // Result post-processing
     pub fn process_search_result(
@@ -238,7 +320,7 @@ impl Os2Client {
         // Decrypted bits are E(stored_bit + query_bit)
         let decrypted_sum_bits: Vec<u8> = oblivious_sum_bf
             .bits
-            .iter()
+            .par_iter()
             .map(|eb_sum| {
                 let decrypted =
                     paillier::decrypt_paillier(eb_sum, &self.paillier_sk, &self.paillier_pk);
@@ -311,38 +393,41 @@ impl CloudServer {
             .paillier_pk
             .as_ref()
             .expect("Paillier PK not set on server");
-        let mut results = Vec::new();
 
-        for doc in &self.stored_documents {
-            // TODO: Implement filtering based on doc.encrypted_index.tau and
-            // query_encrypted_bf.tau using a phi threshold as described in the
-            // paper. For now, we process all.
+        self.stored_documents
+            .par_iter()
+            .filter_map(|doc| {
+                // TODO: Implement filtering based on doc.encrypted_index.tau and
+                // query_encrypted_bf.tau using a phi threshold as described in the
+                // paper. For now, we process all.
 
-            if doc.encrypted_index.bits.len() != query_encrypted_bf.bits.len() {
-                // Should not happen if BLOOM_FILTER_SIZE is consistent
-                continue;
-            }
+                if doc.encrypted_index.bits.len() != query_encrypted_bf.bits.len() {
+                    // Should not happen if BLOOM_FILTER_SIZE is consistent
+                    return None;
+                }
 
-            let mut oblivious_sum_bits = Vec::with_capacity(BLOOM_FILTER_SIZE);
-            for i in 0..BLOOM_FILTER_SIZE {
-                let stored_enc_bit = &doc.encrypted_index.bits[i];
-                let query_enc_bit = &query_encrypted_bf.bits[i];
-                // Homomorphic addition: E(stored_bit) + E(query_bit) -> E(stored_bit +
-                // query_bit)
-                let sum_enc_bit = paillier::add_homomorphic(stored_enc_bit, query_enc_bit, pk);
-                oblivious_sum_bits.push(sum_enc_bit);
-            }
-            // Tau for the sum BF is not meaningful in the same way as original tau.
-            // The paper returns Delta_vector which is just the encrypted sums.
-            results.push((
-                doc.id.clone(),
-                EncryptedBloomFilter {
-                    bits: oblivious_sum_bits,
-                    tau: 0,
-                },
-            ));
-        }
-        results
+                let oblivious_sum_bits = (0..BLOOM_FILTER_SIZE)
+                    .into_par_iter()
+                    .map(|i| {
+                        let stored_enc_bit = &doc.encrypted_index.bits[i];
+                        let query_enc_bit = &query_encrypted_bf.bits[i];
+                        // Homomorphic addition: E(stored_bit) + E(query_bit) -> E(stored_bit +
+                        // query_bit)
+                        paillier::add_homomorphic(stored_enc_bit, query_enc_bit, pk)
+                    })
+                    .collect();
+                
+                // Tau for the sum BF is not meaningful in the same way as original tau.
+                // The paper returns Delta_vector which is just the encrypted sums.
+                Some((
+                    doc.id.clone(),
+                    EncryptedBloomFilter {
+                        bits: oblivious_sum_bits,
+                        tau: 0,
+                    },
+                ))
+            })
+            .collect()
     }
 }
 
