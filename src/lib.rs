@@ -53,7 +53,7 @@ impl BloomFilter {
 
         // Collect all chunks to process in parallel
         let chunks: Vec<&[u8]> = item_bytes.windows(SLIDING_WINDOW_SIZE).collect();
-        
+
         // Process chunks in parallel and collect the bit indices
         let bit_updates: Vec<Vec<usize>> = chunks
             .par_iter()
@@ -61,7 +61,7 @@ impl BloomFilter {
                 let mut hasher = Sha256::default();
                 hasher.update(chunk);
                 let result = hasher.finalize();
-                
+
                 let mut indices = Vec::new();
                 for i in 0..K_HASH_FUNCTIONS {
                     if result.len() >= (i + 1) * 4 {
@@ -122,7 +122,7 @@ impl BloomFilter {
     /// Create a new Bloom filter and add multiple keywords in parallel
     pub fn from_keywords(keywords: &[&str]) -> Self {
         let mut bf = BloomFilter::new();
-        
+
         // Process keywords in parallel and collect all bit updates
         let all_bit_updates: Vec<Vec<usize>> = keywords
             .par_iter()
@@ -135,7 +135,8 @@ impl BloomFilter {
                         vec![]
                     }
                 } else {
-                    item_bytes.windows(SLIDING_WINDOW_SIZE)
+                    item_bytes
+                        .windows(SLIDING_WINDOW_SIZE)
                         .map(Self::get_chunk_indices)
                         .collect()
                 }
@@ -151,7 +152,7 @@ impl BloomFilter {
                 }
             }
         }
-        
+
         bf
     }
 
@@ -160,7 +161,7 @@ impl BloomFilter {
         let mut hasher = Sha256::default();
         hasher.update(chunk);
         let result = hasher.finalize();
-        
+
         let mut indices = Vec::new();
         for i in 0..K_HASH_FUNCTIONS {
             if result.len() >= (i + 1) * 4 {
@@ -416,7 +417,7 @@ impl CloudServer {
                         paillier::add_homomorphic(stored_enc_bit, query_enc_bit, pk)
                     })
                     .collect();
-                
+
                 // Tau for the sum BF is not meaningful in the same way as original tau.
                 // The paper returns Delta_vector which is just the encrypted sums.
                 Some((

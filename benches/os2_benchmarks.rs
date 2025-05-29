@@ -138,25 +138,27 @@ fn realistic_workflow_benchmark(c: &mut Criterion) {
     });
 
     // Scenario 3: Cloud-scale search (5000 documents)
-    group.bench_function("cloud_scale_scenario", |b| {
-        b.iter_batched(
-            || setup_document_scenario(5000, 10),
-            |(client, mut server, documents)| {
-                for doc in documents {
-                    server.store_document(doc);
-                }
+    group
+        .bench_function("cloud_scale_scenario", |b| {
+            b.iter_batched(
+                || setup_document_scenario(5000, 10),
+                |(client, mut server, documents)| {
+                    for doc in documents {
+                        server.store_document(doc);
+                    }
 
-                let query_bf = client.generate_query_bloom_filter(vec!["data", "analysis"]);
-                let results = server.evaluate_query(&query_bf);
+                    let query_bf = client.generate_query_bloom_filter(vec!["data", "analysis"]);
+                    let results = server.evaluate_query(&query_bf);
 
-                // Process only first 100 results for timing purposes
-                for (_, result_bf) in results.into_iter().take(100) {
-                    black_box(client.process_search_result(&result_bf));
-                }
-            },
-            criterion::BatchSize::SmallInput,
-        );
-    }).sample_size(10);
+                    // Process only first 100 results for timing purposes
+                    for (_, result_bf) in results.into_iter().take(100) {
+                        black_box(client.process_search_result(&result_bf));
+                    }
+                },
+                criterion::BatchSize::SmallInput,
+            );
+        })
+        .sample_size(10);
 
     group.finish();
 }
